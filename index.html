@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A pixel dissolve from light into dark · Miguel Clavel</title>
+<meta name="description" content="Scroll from a light section into a dark one and the page comes apart in squares, bottom first, with accent colours along the edge. One canvas, no libraries. By Miguel Clavel.">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  /* Each section declares its own colours, the way a themed wrapper would. */
+  section { --page: #F9F9FB; --ink: #1D1D21; --muted: #67676C; background: var(--page); color: var(--ink); min-height: 100vh; display: grid; place-items: center; padding: 64px 24px; }
+  section.inv { --page: #0F0F11; --ink: #F5F5F7; --muted: #A3A3A8; }
+  .copy { width: min(680px, 100%); }
+  h1, h2 { margin: 0; font-size: clamp(36px, 7vw, 72px); line-height: 1.04; letter-spacing: -0.04em; }
+  p { font-size: 18px; line-height: 1.6; color: var(--muted); }
+  .wipe { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 10; }
+  .wipe canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  .hint a { color: inherit; }
+</style>
+</head>
+<body>
+<section id="from">
+  <div class="copy">
+    <h1>Scroll down.</h1>
+    <p>The light half of the page breaks into squares and the dark half comes through underneath. Two thirds order, one third noise: the bottom rows go first, with a little randomness so it reads like something coming apart, not a window blind.</p>
+    <p class="hint"><a href="https://github.com/miguelclavel/pixel-dissolve">Code and prompt</a></p>
+  </div>
+</section>
+<section class="inv" id="to">
+  <div class="copy">
+    <h2>And you're through.</h2>
+    <p>The sweep is tied to this section arriving, not to the one you left, so it finishes while you can still see it. Scroll back up and it runs in reverse.</p>
+  </div>
+</section>
+<section>
+  <div class="copy"><p>The end. Scroll back up to watch it again.</p></div>
+</section>
+<div class="wipe" aria-hidden="true"><canvas id="wipe"></canvas></div>
+<script>
+  const STEP = 24;            // square size in pixels
+  const NOISE = 1 / 3;        // how much of each threshold is random; try 0.5 for static
+  const ACCENT_SHARE = 0.06;  // chance a just flipped square paints an accent first
+  const BAND = 0.16;          // how long "just flipped" lasts, as a share of the sweep
+  const ACCENTS = ['#FFD84D', '#FF4D6D', '#5BE85B', '#33D6FF'];
+  const from = document.getElementById('from'), to = document.getElementById('to');
+  const cv = document.getElementById('wipe'), box = cv.parentElement;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // A fixed hash per square, so the pattern is the same every time you scroll past.
+  const hash = (x, y, s) => { const n = Math.sin(x * 127.1 + y * 311.7 + s * 74.7) * 43758.5453; return n - Math.floor(n); };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function draw(prog) {
+    if (prog <= 0 || prog >= 0.999) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    const w = innerWidth, h = innerHeight, dpr = Math.min(2, devicePixelRatio || 1);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Read the colours from the sections themselves, not the root, so this
+    // works in whatever theme each section is in.
+    const leaving = getComputedStyle(from).getPropertyValue('--page').trim();
+    const arriving = getComputedStyle(to).getPropertyValue('--page').trim();
+    ctx.fillStyle = leaving; ctx.fillRect(0, 0, w, h);
+    const cols = Math.ceil(w / STEP), rows = Math.ceil(h / STEP);
+    const fade = Math.min(1, (1 - prog) / 0.12);
+    for (let r = 0; r < rows; r++) {
+      const d = rows > 1 ? 1 - r / (rows - 1) : 0;          // bottom rows open first
+      for (let c = 0; c < cols; c++) {
+        const th = d * (1 - NOISE) + hash(c, r, 1) * NOISE;
+        if (prog < th) continue;
+        let fill = arriving;
+        if (prog - th < BAND && hash(c, r, 7) < ACCENT_SHARE * fade) fill = ACCENTS[Math.floor(hash(c, r, 13) * ACCENTS.length) % ACCENTS.length];
+        ctx.fillStyle = fill; ctx.fillRect(c * STEP, r * STEP, STEP, STEP);
+      }
+    }
+  }
+
+  // 0 as the dark section touches the bottom of the screen, 1 once it has risen
+  // 55% of the way: driven by the section arriving, with its own listener.
+  let req = null;
+  // ?at=0.4 freezes the sweep part way, for the README picture.
+  const forced = parseFloat(new URLSearchParams(location.search).get('at'));
+  function run() {
+    req = null;
+    if (forced > 0) return draw(forced);
+    if (reduce) return;
+    const top = to.getBoundingClientRect().top, h = innerHeight;
+    draw(clamp((h - top) / (h * 0.55), 0, 1));
+  }
+  const onScroll = () => { if (!req) req = requestAnimationFrame(run); };
+  addEventListener('scroll', onScroll, { passive: true });
+  addEventListener('resize', onScroll, { passive: true });
+  run();
+</script>
+</body>
+</html>
